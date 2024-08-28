@@ -7,6 +7,9 @@ from __future__ import annotations
 import typing as _tp
 from dataclasses import dataclass
 import inspect
+import logging
+
+from mcl import machine_types as _mt
 
 
 T = _tp.TypeVar("T")
@@ -89,6 +92,7 @@ def machine_op(opname: str, restype: _tp.Type[T], *args) -> T:
     from mcl.machine_types import i64, i32
 
     match opname:
+        # binop
         case "int_add":
             (lhs, rhs) = args
             assert type(lhs) is type(rhs)
@@ -96,17 +100,85 @@ def machine_op(opname: str, restype: _tp.Type[T], *args) -> T:
             mv1 = _get_machine_value(lhs)
             mv2 = _get_machine_value(rhs)
             return restype(mv1 + mv2)
+        case "int_mul":
+            (lhs, rhs) = args
+            assert type(lhs) is type(rhs)
+            assert type(lhs) is restype
+            mv1 = _get_machine_value(lhs)
+            mv2 = _get_machine_value(rhs)
+            return restype(mv1 * mv2)
+        # cmpop
         case "int_eq":
             (lhs, rhs) = args
             assert type(lhs) is type(rhs)
             mv1 = _get_machine_value(lhs)
             mv2 = _get_machine_value(rhs)
             return restype(mv1 == mv2)
+        # pointer/memory
+        case "malloc":
+            [nbytes] = args
+            assert restype is _mt.pointer
+            assert type(nbytes) is _mt.intp
+            mv_nbytes = _get_machine_value(nbytes)
+            ptr = _the_memsys.malloc(mv_nbytes)
+            return restype(ptr)
+        case "memref_setitem":
+            [memref, indices, val] = args
+            assert type(indices) is tuple
+            strides = memref.strides
+            offset = sum(
+                _get_machine_value(i) * _get_machine_value(s)
+                for i, s in zip(indices, strides, strict=True)
+            )
+            mv_ptr: _Ptr = _get_machine_value(memref.dataptr)
+            _the_memsys.write(mv_ptr, offset, _to_bytes(val))
+        case "memref_getitem":
+            [memref, indices] = args
+            assert type(indices) is tuple
+            strides = memref.strides
+            offset = sum(
+                _get_machine_value(i) * _get_machine_value(s)
+                for i, s in zip(indices, strides, strict=True)
+            )
+            size = _sizeof(restype)
+            mv_ptr: _Ptr = _get_machine_value(memref.dataptr)
+            raw: bytes = _the_memsys.read(mv_ptr, offset, size)
+
+            match restype:
+                case _mt.i32:
+                    return restype(int.from_bytes(raw))
+                case _:
+                    raise TypeError(f"invalid type {restype}")
+        # misc
+
         case "cast":
             [v0] = args
             return restype(_get_machine_value(v0))
+
         case _:
             raise NotImplementedError(opname, args)
+
+
+def _to_bytes[T](value: T) -> bytes:
+    mv = _get_machine_value(value)
+    out: bytes
+    match type(value):
+        case _mt.i32:
+            out = mv.to_bytes(4, signed=True)
+        case _:
+            raise TypeError(f"invalid type {type(value)}")
+
+    return out
+
+
+def _sizeof(restype: _tp.Type) -> int:
+    match restype:
+        case _mt.i32:
+            out = 4
+        case _:
+            raise TypeError(f"invalid type {restype}")
+
+    return out
 
 
 class BaseStructType(Type):
@@ -133,6 +205,8 @@ class BaseStructType(Type):
 def _make_struct_methods(ns: dict):
     def m__getattr__(self, k):
         fields = self.__mcl_struct_fields__
+        if k not in fields:
+            raise AttributeError(k)
         return fields[k]
 
     if "__getattr__" in ns:
@@ -161,3 +235,52 @@ def struct_type(*, final=False, builtin=False):
         )
 
     return wrap
+
+
+@dataclass(frozen=True, eq=True)
+class _Ptr:
+    addr: int
+    end_addr: int
+
+    def __repr__(self) -> str:
+        return f"<_Ptr 0x{self.addr:08x}:0x{self.end_addr:08x}>"
+
+
+class MemorySystem:
+    _memmap: dict[_Ptr, bytearray]
+    _last_addr: int
+    _null: _Ptr
+
+    def __init__(self):
+        self._memmap = {}
+        self._last_addr = 0
+
+        reserve = 0x8000_0000
+        self._null = self._fresh_pointer(reserve)
+        assert self._null.addr == 0
+        assert self._last_addr == reserve
+
+    def _fresh_pointer(self, size: int) -> _Ptr:
+        base = self._last_addr
+        self._last_addr += size
+        return _Ptr(addr=base, end_addr=self._last_addr)
+
+    def malloc(self, size: int) -> _Ptr:
+        buf = bytearray(size)
+        ptr = self._fresh_pointer(size)
+        self._memmap[ptr] = buf
+        return ptr
+
+    def write(self, ptr: _Ptr, offset: int, value: bytes) -> None:
+        logging.debug("write %s %s %s", ptr, offset, value)
+        ba = self._memmap[ptr]
+        n = len(value)
+        ba[offset : offset + n] = value
+
+    def read(self, ptr: _Ptr, offset: int, size: int) -> bytes:
+        logging.debug("read %s %s %s", ptr, offset, size)
+        ba = self._memmap[ptr]
+        return ba[offset : offset + size]
+
+
+_the_memsys = MemorySystem()

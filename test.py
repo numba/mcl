@@ -1,8 +1,11 @@
 # pytest me
 import pytest
-from mcl.machine_types import i32, i64, intp
+import logging
+from mcl.machine_types import i32, i64, intp, pointer
 from mcl.internal import Type
-from mcl.ndarray import Array, IntDType
+from mcl.ndarray import Array, IntDType, MemRef
+
+
 
 def test_i32():
     a = i32(321)
@@ -34,14 +37,26 @@ def test_final():
 
 
 def test_array():
+
     shape = (intp(3), intp(4))
+    itemsize = intp(4)
+    strides = (shape[-1] * itemsize, itemsize)
+
     i32_dtype = IntDType(name="int32", bitwidth=32)
 
     print(i32_dtype)
 
-    ary = Array(shape=shape, dtype=i32_dtype)
+    ptr = pointer.new(intp(10))
+
+    data = MemRef(shape=shape, strides=strides, baseptr=ptr, dataptr=ptr)
+    print(data)
+
+    ary = Array(dtype=i32_dtype, data=data)
 
     print(ary)
     print(ary.shape)
     print(ary.dtype)
 
+    ary[intp(0), intp(0)] = i32(0xcafe)
+    res = ary[intp(0), intp(0)]
+    assert res == i32(0xcafe)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import typing as _tp
-from mcl.internal import machine_type, machine_op
+from mcl.internal import machine_type, machine_op, struct_type
 
 T = _tp.TypeVar("T")
 
@@ -47,4 +47,33 @@ class i64:
 class intp:
     __machine_repr__ = "intptr"
 
+    if _tp.TYPE_CHECKING:
 
+        def __init__(self, v): ...
+
+    def __add__(self, other) -> intp:
+        if type(other) is intp:
+            return machine_op("int_add", intp, self, other)
+        else:
+            return NotImplemented
+
+    def __mul__(self, other) -> intp:
+        if type(other) is intp:
+            return machine_op("int_mul", intp, self, other)
+        else:
+            return NotImplemented
+
+    def __eq__(self, other) -> bool:
+        if type(other) is intp:
+            return machine_op("int_eq", bool, self, other)
+        else:
+            return NotImplemented
+
+
+@machine_type(builtin=True, final=True)
+class pointer:
+    __machine_repr__ = "ptr"
+
+    @classmethod
+    def new(cls, nbytes: intp) -> pointer:
+        return machine_op("malloc", pointer, nbytes)
