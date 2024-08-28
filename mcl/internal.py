@@ -272,13 +272,13 @@ class MemorySystem:
         return ptr
 
     def write(self, ptr: _Ptr, offset: int, value: bytes) -> None:
-        logging.debug("write %s %s %s", ptr, offset, value)
+        logging.debug("write %s offset=0%s value=%s", ptr, offset, value)
         ba = self._memmap[ptr]
         n = len(value)
         ba[offset : offset + n] = value
 
     def read(self, ptr: _Ptr, offset: int, size: int) -> bytes:
-        logging.debug("read %s %s %s", ptr, offset, size)
+        logging.debug("read %s offset=%s size=%s", ptr, offset, size)
         ba = self._memmap[ptr]
         return ba[offset : offset + size]
 

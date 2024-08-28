@@ -3,7 +3,7 @@ import pytest
 import logging
 from mcl.machine_types import i32, i64, intp, pointer
 from mcl.internal import Type
-from mcl.ndarray import Array, IntDType, MemRef
+from mcl.ndarray import Array, DType, Int32, MemRef
 
 
 
@@ -42,7 +42,8 @@ def test_array():
     itemsize = intp(4)
     strides = (shape[-1] * itemsize, itemsize)
 
-    i32_dtype = IntDType(name="int32", bitwidth=32)
+    i32_dtype = DType(Int32)
+
 
     print(i32_dtype)
 
@@ -60,3 +61,19 @@ def test_array():
     ary[intp(0), intp(0)] = i32(0xcafe)
     res = ary[intp(0), intp(0)]
     assert res == i32(0xcafe)
+
+    # write loop
+    c = i32(0)
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            ary[intp(i), intp(j)] = c
+            c += i32(1)
+
+    # read loop
+    c = i32(0)
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            got = ary[intp(i), intp(j)]
+            print(f"ary[{i}, {j}] = {got}")
+            assert got == c
+            c += i32(1)

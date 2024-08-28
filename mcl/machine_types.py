@@ -69,6 +69,9 @@ class intp:
         else:
             return NotImplemented
 
+    def __index__(self) -> int:
+        return machine_op("cast", int, self)
+
 
 @machine_type(builtin=True, final=True)
 class pointer:

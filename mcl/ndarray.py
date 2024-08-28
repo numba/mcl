@@ -7,12 +7,37 @@ from mcl.memref import MemRef
 
 @struct_type()
 class DType:
-    name: str
+    type: _tp.Type[Generic]
 
 
 @struct_type()
-class IntDType(DType):
-    bitwidth: i32
+class Generic:
+    pass
+
+
+@struct_type()
+class Number(Generic):
+    pass
+
+
+@struct_type()
+class Integer(Number):
+    pass
+
+
+@struct_type()
+class Int32(Integer):
+    value: i32
+
+    @classmethod
+    def from_memory(cls, data: MemRef, index: int) -> Int32:
+        return cls(value=data.getitem(index, i32))
+
+    def __eq__(self, other) -> bool:
+        if type(other) is i32:
+            return self.value == other
+        elif isinstance(other, Int32):
+            return self.value == other.value
 
 
 @struct_type(final=True)
@@ -33,8 +58,7 @@ class Array[T]:
             idx = (idx,)
         self.data.setitem(idx, value)
 
-    def __getitem__(self, idx: tuple[intp, ...] | intp) -> T:
+    def __getitem__(self, idx: tuple[intp, ...] | intp) -> Array[T]:
         if not isinstance(idx, tuple):
             idx = (idx,)
-        # FIXME: handle dtype
-        return self.data.getitem(idx, i32)
+        return self.dtype.type.from_memory(self.data, idx)
