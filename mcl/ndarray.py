@@ -1,8 +1,7 @@
 from __future__ import annotations
 import typing as _tp
 from mcl.vm import struct_type
-from mcl.machine_types import intp, i32
-from mcl.memref import MemRef
+from mcl.machine_types import intp, i32, memref
 
 
 @struct_type()
@@ -43,7 +42,7 @@ class Int32(Integer):
 @struct_type(final=True)
 class Array[T]:
     dtype: DType
-    data: MemRef
+    data: memref
 
     @property
     def shape(self) -> tuple[intp, ...]:

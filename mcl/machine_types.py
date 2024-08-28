@@ -74,9 +74,23 @@ class intp:
 
 
 @machine_type(builtin=True, final=True)
-class pointer:
-    __machine_repr__ = "ptr"
+class memref[T]:
+    __machine_repr__ = "memref"
 
     @classmethod
-    def new(cls, nbytes: intp) -> pointer:
-        return machine_op("malloc", pointer, nbytes)
+    def alloc(cls, shape: tuple[intp, ...], type: _tp.Type[T]) -> memref[T]:
+        return machine_op("memref_alloc", memref, shape, type)
+
+    @property
+    def shape(self) -> tuple[intp, ...]:
+        return machine_op("memref_shape", tuple, self)
+
+    @property
+    def strides(self) -> tuple[intp, ...]:
+        return machine_op("memref_strides", tuple, self)
+
+    def setitem(self, indices: tuple[intp, ...], value: T) -> None:
+        return machine_op("memref_setitem", None, self, indices, value)
+
+    def getitem(self, indices: tuple[intp, ...], restype: _tp.TypeVar[T]) -> T:
+        return machine_op("memref_getitem", restype, self, indices)

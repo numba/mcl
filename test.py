@@ -1,9 +1,9 @@
 # pytest me
 import pytest
 import logging
-from mcl.machine_types import i32, i64, intp, pointer
+from mcl.machine_types import i32, i64, intp, memref
 from mcl.vm import Type
-from mcl.ndarray import Array, DType, Int32, MemRef
+from mcl.ndarray import Array, DType, Int32
 
 
 
@@ -39,17 +39,10 @@ def test_final():
 def test_array():
 
     shape = (intp(3), intp(4))
-    itemsize = intp(4)
-    strides = (shape[-1] * itemsize, itemsize)
-
     i32_dtype = DType(Int32)
-
-
     print(i32_dtype)
 
-    ptr = pointer.new(intp(10))
-
-    data = MemRef(shape=shape, strides=strides, baseptr=ptr, dataptr=ptr)
+    data = memref.alloc(shape, i32)
     print(data)
 
     ary = Array(dtype=i32_dtype, data=data)

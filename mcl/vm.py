@@ -1,10 +1,14 @@
 """
+The Virtual Machine
+
 This file is not meant to be compiled.
 Only for providing an implementation that Python interpreter can evaluate.
 """
 
 from __future__ import annotations
 import typing as _tp
+from functools import reduce
+import operator
 from dataclasses import dataclass
 import inspect
 import logging
@@ -23,7 +27,7 @@ class TypeDescriptor:
 
 
 class Type(type):
-    registry: list[Type] = []
+    registry: set[Type] = set()
 
     __mcl_type_descriptor__: TypeDescriptor | None = None
 
@@ -35,17 +39,22 @@ class Type(type):
         typ = super().__new__(cls, name, bases, ns)
         if td is not None:
             typ.__mcl_type_descriptor__ = td
-        cls.registry.append(typ)
+
+        cls.registry.add(typ)
         return typ
 
     def __call__(cls, *args, **kwargs):
-        return type.__call__(cls, *args, **kwargs)
+        ty = type.__call__(cls, *args, **kwargs)
+        return ty
 
 
 class BaseMachineType(Type):
     def __call__(cls, value):
         obj = object.__new__(cls)
-        obj.__value = value
+        if type(value) in cls.registry:
+            obj.__value = _get_machine_value(value)
+        else:
+            obj.__value = value
         return obj
 
     @classmethod
@@ -114,41 +123,42 @@ def machine_op(opname: str, restype: _tp.Type[T], *args) -> T:
             mv1 = _get_machine_value(lhs)
             mv2 = _get_machine_value(rhs)
             return restype(mv1 == mv2)
-        # pointer/memory
-        case "malloc":
-            [nbytes] = args
-            assert restype is _mt.pointer
-            assert type(nbytes) is _mt.intp
-            mv_nbytes = _get_machine_value(nbytes)
-            ptr = _the_memsys.malloc(mv_nbytes)
-            return restype(ptr)
+        # memref
+        case "memref_alloc":
+            [shape, typ] = args
+            assert restype is _mt.memref
+            assert type(shape) is tuple
+            mv_shape = tuple(map(_get_machine_value, shape))
+            memref = _the_memsys.alloc(mv_shape, typ)
+            return restype(memref)
+        case "memref_shape":
+            [obj] = args
+            assert restype is tuple
+            memref: MemRef = _get_machine_value(obj)
+            shape = tuple(map(_mt.intp, memref.shape))
+            return shape
+        case "memref_strides":
+            [obj] = args
+            assert restype is tuple
+            memref: MemRef = _get_machine_value(obj)
+            strides = tuple(map(_mt.intp, memref.strides))
+            return strides
         case "memref_setitem":
-            [memref, indices, val] = args
+            [obj, indices, val] = args
             assert type(indices) is tuple
-            strides = memref.strides
-            offset = sum(
-                _get_machine_value(i) * _get_machine_value(s)
-                for i, s in zip(indices, strides, strict=True)
-            )
-            mv_ptr: _Ptr = _get_machine_value(memref.dataptr)
-            _the_memsys.write(mv_ptr, offset, _to_bytes(val))
-        case "memref_getitem":
-            [memref, indices] = args
-            assert type(indices) is tuple
-            strides = memref.strides
-            offset = sum(
-                _get_machine_value(i) * _get_machine_value(s)
-                for i, s in zip(indices, strides, strict=True)
-            )
-            size = _sizeof(restype)
-            mv_ptr: _Ptr = _get_machine_value(memref.dataptr)
-            raw: bytes = _the_memsys.read(mv_ptr, offset, size)
 
-            match restype:
-                case _mt.i32:
-                    return restype(int.from_bytes(raw))
-                case _:
-                    raise TypeError(f"invalid type {restype}")
+            memref: MemRef = _get_machine_value(obj)
+            indices = tuple(map(_get_machine_value, indices))
+            _the_memsys.write(memref, indices, val)
+
+        case "memref_getitem":
+            [obj, indices] = args
+            assert type(indices) is tuple
+
+            memref: MemRef = _get_machine_value(obj)
+            indices = tuple(map(_get_machine_value, indices))
+            return restype(_the_memsys.read(memref, indices))
+
         # misc
 
         case "cast":
@@ -157,6 +167,14 @@ def machine_op(opname: str, restype: _tp.Type[T], *args) -> T:
 
         case _:
             raise NotImplementedError(opname, args)
+
+
+def _from_bytes[T](restype: _tp.Type[T], raw: bytes) -> T:
+    match restype:
+        case _mt.i32:
+            return restype(int.from_bytes(raw, signed=True))
+        case _:
+            raise TypeError(restype)
 
 
 def _to_bytes[T](value: T) -> bytes:
@@ -237,50 +255,73 @@ def struct_type(*, final=False, builtin=False):
     return wrap
 
 
-@dataclass(frozen=True, eq=True)
-class _Ptr:
-    addr: int
-    end_addr: int
+@dataclass(frozen=True)
+class MemRef:
+    shape: int
+    strides: int
+    datatype: _tp.Type
+    itemsize: int
+    size: int
+    owner: MemRef | None = None
+    offset: int = 0
 
     def __repr__(self) -> str:
-        return f"<_Ptr 0x{self.addr:08x}:0x{self.end_addr:08x}>"
+        buf = [f"<{hex(id(self))} shape={self.shape} strides={self.strides}"]
+        if self.owner:
+            buf.append(f"owner={self.owner}")
+        buf.append(">")
+        return ' '.join(buf)
+
+
+    def handle(self) -> MemRef:
+        return self.owner or self
 
 
 class MemorySystem:
-    _memmap: dict[_Ptr, bytearray]
+    """The Memory System
+
+    To provide safe memory operation, all memory manipulation must go through
+    this class. No pointer arithmetic.
+    """
+    _memmap: dict[MemRef, bytearray]
     _last_addr: int
-    _null: _Ptr
 
     def __init__(self):
         self._memmap = {}
-        self._last_addr = 0
 
-        reserve = 0x8000_0000
-        self._null = self._fresh_pointer(reserve)
-        assert self._null.addr == 0
-        assert self._last_addr == reserve
+    def alloc(self, shape: tuple[int, ...], datatype: _tp.Type) -> MemRef:
+        itemsize = _sizeof(datatype)
+        nbytes = reduce(operator.mul, shape) * itemsize
+        assert nbytes != 0
+        # compute strides
+        strides = []
+        last = itemsize
+        for s in reversed(shape):
+            strides.append(last)
+            last *= s
+        assert last == nbytes
+        memref = MemRef(shape=shape, strides=tuple(strides), datatype=datatype, itemsize=itemsize, size=nbytes)
+        buffer = bytearray(nbytes)
+        self._memmap[memref] = buffer
+        return memref
 
-    def _fresh_pointer(self, size: int) -> _Ptr:
-        base = self._last_addr
-        self._last_addr += size
-        return _Ptr(addr=base, end_addr=self._last_addr)
+    def write[T](self, memref: MemRef, indices: tuple[int, ...], value: T) -> None:
+        logging.debug("write %s indices=%s value=%s", memref, indices, value)
+        buffer = self._memmap[memref.handle()]
+        offset = sum(i * s for i, s in zip(indices, memref.strides, strict=True))
+        offset += memref.offset
+        value_bytes = _to_bytes(value)
+        buffer[offset : offset + len(value_bytes)] = value_bytes
 
-    def malloc(self, size: int) -> _Ptr:
-        buf = bytearray(size)
-        ptr = self._fresh_pointer(size)
-        self._memmap[ptr] = buf
-        return ptr
+    def read(self, memref: MemRef, indices: tuple[int, ...]) -> bytes:
+        logging.debug("read %s indices=%s", memref, indices)
+        buffer = self._memmap[memref.handle()]
+        offset = sum(i * s for i, s in zip(indices, memref.strides, strict=True))
+        offset += memref.offset
+        n = memref.itemsize
+        raw_bytes = buffer[offset : offset + n]
+        return _from_bytes(memref.datatype, raw_bytes)
 
-    def write(self, ptr: _Ptr, offset: int, value: bytes) -> None:
-        logging.debug("write %s offset=0%s value=%s", ptr, offset, value)
-        ba = self._memmap[ptr]
-        n = len(value)
-        ba[offset : offset + n] = value
-
-    def read(self, ptr: _Ptr, offset: int, size: int) -> bytes:
-        logging.debug("read %s offset=%s size=%s", ptr, offset, size)
-        ba = self._memmap[ptr]
-        return ba[offset : offset + size]
 
 
 _the_memsys = MemorySystem()
