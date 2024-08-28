@@ -146,21 +146,21 @@ def machine_op(opname: str, restype: _tp.Type[T], *args) -> T:
         case "memref_setitem":
             [obj, indices, val] = args
             assert type(indices) is tuple
-
             memref: MemRef = _get_machine_value(obj)
             indices = tuple(map(_get_machine_value, indices))
             _the_memsys.write(memref, indices, val)
-
         case "memref_getitem":
             [obj, indices] = args
             assert type(indices) is tuple
-
             memref: MemRef = _get_machine_value(obj)
             indices = tuple(map(_get_machine_value, indices))
             return restype(_the_memsys.read(memref, indices))
-
+        # tuple
+        case "tuple_cast":
+            [resty, tup] = args
+            assert issubclass(type(resty), BaseMachineType)
+            return tuple(map(resty, tup))
         # misc
-
         case "cast":
             [v0] = args
             return restype(_get_machine_value(v0))
@@ -175,6 +175,7 @@ def _from_bytes[T](restype: _tp.Type[T], raw: bytes) -> T:
             return restype(int.from_bytes(raw, signed=True))
         case _:
             raise TypeError(restype)
+    raise AssertionError
 
 
 def _to_bytes[T](value: T) -> bytes:
@@ -257,8 +258,8 @@ def struct_type(*, final=False, builtin=False):
 
 @dataclass(frozen=True)
 class MemRef:
-    shape: int
-    strides: int
+    shape: tuple[int, ...]
+    strides: tuple[int, ...]
     datatype: _tp.Type
     itemsize: int
     size: int

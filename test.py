@@ -51,7 +51,7 @@ def test_array():
     print(ary.shape)
     print(ary.dtype)
 
-    ary[intp(0), intp(0)] = i32(0xcafe)
+    ary[0, 0] = i32(0xcafe)
     res = ary[intp(0), intp(0)]
     assert res == i32(0xcafe)
 
@@ -66,7 +66,7 @@ def test_array():
     c = i32(0)
     for i in range(shape[0]):
         for j in range(shape[1]):
-            got = ary[intp(i), intp(j)]
+            got = ary[i, j]
             print(f"ary[{i}, {j}] = {got}")
             assert got == c
             c += i32(1)
