@@ -1,5 +1,5 @@
 import typing as _tp
-from mcl.internal import struct_type, machine_op
+from mcl.vm import struct_type, machine_op
 from mcl.machine_types import intp, pointer
 
 

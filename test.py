@@ -2,7 +2,7 @@
 import pytest
 import logging
 from mcl.machine_types import i32, i64, intp, pointer
-from mcl.internal import Type
+from mcl.vm import Type
 from mcl.ndarray import Array, DType, Int32, MemRef
 
 

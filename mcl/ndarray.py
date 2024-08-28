@@ -1,6 +1,6 @@
 from __future__ import annotations
 import typing as _tp
-from mcl.internal import struct_type
+from mcl.vm import struct_type
 from mcl.machine_types import intp, i32
 from mcl.memref import MemRef
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import typing as _tp
-from mcl.internal import machine_type, machine_op, struct_type
+from mcl.vm import machine_type, machine_op, struct_type
 
 T = _tp.TypeVar("T")
 
