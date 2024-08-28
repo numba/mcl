@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import typing as _tp
-from mcl.vm import machine_type, machine_op, struct_type
+
+from mcl.vm import machine_op, machine_type, struct_type
 
 T = _tp.TypeVar("T")
 
@@ -92,5 +93,5 @@ class memref[T]:
     def setitem(self, indices: tuple[intp, ...], value: T) -> None:
         return machine_op("memref_setitem", None, self, indices, value)
 
-    def getitem(self, indices: tuple[intp, ...], restype: _tp.TypeVar[T]) -> T:
+    def getitem(self, indices: tuple[intp, ...], restype: _tp.Type[T]) -> T:
         return machine_op("memref_getitem", restype, self, indices)

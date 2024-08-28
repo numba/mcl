@@ -6,17 +6,15 @@ Only for providing an implementation that Python interpreter can evaluate.
 """
 
 from __future__ import annotations
-import typing as _tp
-from functools import reduce
-import operator
-from dataclasses import dataclass
+
 import inspect
 import logging
+import operator
+import typing as _tp
+from dataclasses import dataclass
+from functools import reduce, singledispatch
 
 from mcl import machine_types as _mt
-
-
-T = _tp.TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -92,81 +90,112 @@ def machine_type(*, final=False, builtin=False):
     return wrap
 
 
-@_tp.no_type_check
-def machine_op(opname: str, restype: _tp.Type[T], *args) -> T:
+_machine_op_table = {}
+
+
+def machine_op[T](opname: str, restype: _tp.Type[T], *args) -> T:
     """
     Note: bool is implicit in the system. It is too foundational in Python to
           have an override.
     """
-    from mcl.machine_types import i64, i32
+    return _machine_op_table[opname](opname, restype, *args)
 
-    match opname:
-        # binop
-        case "int_add":
-            (lhs, rhs) = args
-            assert type(lhs) is type(rhs)
-            assert type(lhs) is restype
-            mv1 = _get_machine_value(lhs)
-            mv2 = _get_machine_value(rhs)
-            return restype(mv1 + mv2)
-        case "int_mul":
-            (lhs, rhs) = args
-            assert type(lhs) is type(rhs)
-            assert type(lhs) is restype
-            mv1 = _get_machine_value(lhs)
-            mv2 = _get_machine_value(rhs)
-            return restype(mv1 * mv2)
-        # cmpop
-        case "int_eq":
-            (lhs, rhs) = args
-            assert type(lhs) is type(rhs)
-            mv1 = _get_machine_value(lhs)
-            mv2 = _get_machine_value(rhs)
-            return restype(mv1 == mv2)
-        # memref
-        case "memref_alloc":
-            [shape, typ] = args
-            assert restype is _mt.memref
-            assert type(shape) is tuple
-            mv_shape = tuple(map(_get_machine_value, shape))
-            memref = _the_memsys.alloc(mv_shape, typ)
-            return restype(memref)
-        case "memref_shape":
-            [obj] = args
-            assert restype is tuple
-            memref: MemRef = _get_machine_value(obj)
-            shape = tuple(map(_mt.intp, memref.shape))
-            return shape
-        case "memref_strides":
-            [obj] = args
-            assert restype is tuple
-            memref: MemRef = _get_machine_value(obj)
-            strides = tuple(map(_mt.intp, memref.strides))
-            return strides
-        case "memref_setitem":
-            [obj, indices, val] = args
-            assert type(indices) is tuple
-            memref: MemRef = _get_machine_value(obj)
-            indices = tuple(map(_get_machine_value, indices))
-            _the_memsys.write(memref, indices, val)
-        case "memref_getitem":
-            [obj, indices] = args
-            assert type(indices) is tuple
-            memref: MemRef = _get_machine_value(obj)
-            indices = tuple(map(_get_machine_value, indices))
-            return restype(_the_memsys.read(memref, indices))
-        # tuple
-        case "tuple_cast":
-            [resty, tup] = args
-            assert issubclass(type(resty), BaseMachineType)
-            return tuple(map(resty, tup))
-        # misc
-        case "cast":
-            [v0] = args
-            return restype(_get_machine_value(v0))
 
-        case _:
-            raise NotImplementedError(opname, args)
+def _reg_op(fn):
+    name = fn.__name__.lstrip("_")
+    _machine_op_table[name] = fn
+    return fn
+
+
+def _binop[T](op, restype: _tp.Type[T], *args) -> T:
+    (lhs, rhs) = args
+    assert type(lhs) is type(rhs)
+    assert type(lhs) is restype
+    mv1 = _get_machine_value(lhs)
+    mv2 = _get_machine_value(rhs)
+    return restype(op(mv1, mv2))
+
+
+def _cmpop[T](op, restype: _tp.Type[T], *args) -> T:
+    (lhs, rhs) = args
+    assert type(lhs) is type(rhs)
+    mv1 = _get_machine_value(lhs)
+    mv2 = _get_machine_value(rhs)
+    return restype(op(mv1, mv2))
+
+
+@_reg_op
+def _int_add[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    return _binop(operator.add, restype, *args)
+
+
+@_reg_op
+def _int_mul[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    return _binop(operator.mul, restype, *args)
+
+
+@_reg_op
+def _int_eq[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    return _cmpop(operator.eq, restype, *args)
+
+
+@_reg_op
+def _memref_alloc[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [shape, typ] = args
+    assert restype is _mt.memref
+    assert type(shape) is tuple
+    mv_shape = tuple(map(_get_machine_value, shape))
+    memref = _the_memsys.alloc(mv_shape, typ)
+    return restype(memref)
+
+
+@_reg_op
+def _memref_shape[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [obj] = args
+    assert restype is tuple
+    memref: MemRef = _get_machine_value(obj)
+    shape = tuple(map(_mt.intp, memref.shape))
+    return shape
+
+
+@_reg_op
+def _memref_strides[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [obj] = args
+    assert restype is tuple
+    memref: MemRef = _get_machine_value(obj)
+    strides = tuple(map(_mt.intp, memref.strides))
+    return strides
+
+
+@_reg_op
+def _memref_setitem[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [obj, indices, val] = args
+    assert type(indices) is tuple
+    memref: MemRef = _get_machine_value(obj)
+    indices = tuple(map(_get_machine_value, indices))
+    _the_memsys.write(memref, indices, val)
+
+
+@_reg_op
+def _memref_getitem[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [obj, indices] = args
+    assert type(indices) is tuple
+    memref: MemRef = _get_machine_value(obj)
+    indices = tuple(map(_get_machine_value, indices))
+    return restype(_the_memsys.read(memref, indices))
+
+
+@_reg_op
+def _tuple_cast[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [resty, tup] = args
+    assert issubclass(type(resty), BaseMachineType)
+    return tuple(map(resty, tup))
+
+
+@_reg_op
+def _cast[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [v0] = args
+    return restype(_get_machine_value(v0))
 
 
 def _from_bytes[T](restype: _tp.Type[T], raw: bytes) -> T:
@@ -271,8 +300,7 @@ class MemRef:
         if self.owner:
             buf.append(f"owner={self.owner}")
         buf.append(">")
-        return ' '.join(buf)
-
+        return " ".join(buf)
 
     def handle(self) -> MemRef:
         return self.owner or self
@@ -284,6 +312,7 @@ class MemorySystem:
     To provide safe memory operation, all memory manipulation must go through
     this class. No pointer arithmetic.
     """
+
     _memmap: dict[MemRef, bytearray]
     _last_addr: int
 
@@ -301,15 +330,25 @@ class MemorySystem:
             strides.append(last)
             last *= s
         assert last == nbytes
-        memref = MemRef(shape=shape, strides=tuple(strides), datatype=datatype, itemsize=itemsize, size=nbytes)
+        memref = MemRef(
+            shape=shape,
+            strides=tuple(strides),
+            datatype=datatype,
+            itemsize=itemsize,
+            size=nbytes,
+        )
         buffer = bytearray(nbytes)
         self._memmap[memref] = buffer
         return memref
 
-    def write[T](self, memref: MemRef, indices: tuple[int, ...], value: T) -> None:
+    def write[
+        T
+    ](self, memref: MemRef, indices: tuple[int, ...], value: T) -> None:
         logging.debug("write %s indices=%s value=%s", memref, indices, value)
         buffer = self._memmap[memref.handle()]
-        offset = sum(i * s for i, s in zip(indices, memref.strides, strict=True))
+        offset = sum(
+            i * s for i, s in zip(indices, memref.strides, strict=True)
+        )
         offset += memref.offset
         value_bytes = _to_bytes(value)
         buffer[offset : offset + len(value_bytes)] = value_bytes
@@ -317,12 +356,13 @@ class MemorySystem:
     def read(self, memref: MemRef, indices: tuple[int, ...]) -> bytes:
         logging.debug("read %s indices=%s", memref, indices)
         buffer = self._memmap[memref.handle()]
-        offset = sum(i * s for i, s in zip(indices, memref.strides, strict=True))
+        offset = sum(
+            i * s for i, s in zip(indices, memref.strides, strict=True)
+        )
         offset += memref.offset
         n = memref.itemsize
         raw_bytes = buffer[offset : offset + n]
         return _from_bytes(memref.datatype, raw_bytes)
-
 
 
 _the_memsys = MemorySystem()

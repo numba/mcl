@@ -37,7 +37,6 @@ def test_final():
 
 
 def test_array():
-
     shape = (intp(3), intp(4))
     i32_dtype = DType(Int32)
     print(i32_dtype)
@@ -59,7 +58,7 @@ def test_array():
     c = i32(0)
     for i in range(shape[0]):
         for j in range(shape[1]):
-            ary[intp(i), intp(j)] = c
+            ary[i, j] = c
             c += i32(1)
 
     # read loop

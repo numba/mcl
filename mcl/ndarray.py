@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 import typing as _tp
+
+from mcl.builtins import tuple_cast
+from mcl.machine_types import i32, intp, memref
 from mcl.vm import struct_type
-from mcl.machine_types import intp, i32, memref
 
 
 @struct_type()
@@ -11,7 +14,9 @@ class DType:
 
 @struct_type()
 class Generic:
-    pass
+    @classmethod
+    def from_memory(cls, data: memref, index: tuple[intp, ...]) -> Generic:
+        raise NotImplementedError
 
 
 @struct_type()
@@ -24,12 +29,16 @@ class Integer(Number):
     pass
 
 
+type _IntLike = int | intp
+type _Indices = tuple[_IntLike, ...] | _IntLike
+
+
 @struct_type()
 class Int32(Integer):
     value: i32
 
     @classmethod
-    def from_memory(cls, data: MemRef, index: int) -> Int32:
+    def from_memory(cls, data: memref, index: tuple[intp, ...]) -> Int32:
         return cls(value=data.getitem(index, i32))
 
     def __eq__(self, other) -> bool:
@@ -37,6 +46,7 @@ class Int32(Integer):
             return self.value == other
         elif isinstance(other, Int32):
             return self.value == other.value
+        return NotImplemented
 
 
 @struct_type(final=True)
@@ -52,12 +62,14 @@ class Array[T]:
     def ndim(self) -> intp:
         return intp(len(self.shape))
 
-    def __setitem__(self, idx: tuple[intp, ...] | intp, value: T):
+    def __setitem__(self, idx: _Indices, value: T):
         if not isinstance(idx, tuple):
             idx = (idx,)
+        idx = tuple_cast(intp, idx)
         self.data.setitem(idx, value)
 
-    def __getitem__(self, idx: tuple[intp, ...] | intp) -> Array[T]:
+    def __getitem__(self, idx: _Indices) -> Array[T] | Generic:
         if not isinstance(idx, tuple):
             idx = (idx,)
+        idx = tuple_cast(intp, idx)
         return self.dtype.type.from_memory(self.data, idx)
