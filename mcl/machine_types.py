@@ -23,9 +23,6 @@ class i32:
         else:
             return NotImplemented
 
-    def cast(self, restype: _tp.Type[T]) -> T:
-        return machine_op("cast", restype, self)
-
 
 @machine_type(builtin=True, final=True)
 class i64:

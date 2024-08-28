@@ -26,7 +26,7 @@ def test_i64():
     a = i32(123)
     b = i64(321)
 
-    c = b + a.cast(i64)
+    c = b + i64(a)
     assert c == i64(444)
 
 
