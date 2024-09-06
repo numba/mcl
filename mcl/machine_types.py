@@ -55,15 +55,33 @@ class intp:
         else:
             return NotImplemented
 
+    def __sub__(self, other) -> intp:
+        if type(other) is intp:
+            return machine_op("int_sub", intp, self, other)
+        else:
+            return NotImplemented
+
     def __mul__(self, other) -> intp:
         if type(other) is intp:
             return machine_op("int_mul", intp, self, other)
         else:
             return NotImplemented
 
+    def __floordiv__(self, other) -> intp:
+        if type(other) is intp:
+            return machine_op("int_floordiv", intp, self, other)
+        else:
+            return NotImplemented
+
     def __eq__(self, other) -> bool:
         if type(other) is intp:
             return machine_op("int_eq", bool, self, other)
+        else:
+            return NotImplemented
+
+    def __lt__(self, other) -> bool:
+        if type(other) is intp:
+            return machine_op("int_lt", bool, self, other)
         else:
             return NotImplemented
 
@@ -87,8 +105,15 @@ class memref[T]:
     def strides(self) -> tuple[intp, ...]:
         return machine_op("memref_strides", tuple, self)
 
-    def setitem(self, indices: tuple[intp, ...], value: T) -> None:
-        return machine_op("memref_setitem", None, self, indices, value)
+    @property
+    def offset(self) -> intp:
+        return machine_op("memref_offset", tuple, self)
 
-    def getitem(self, indices: tuple[intp, ...], restype: _tp.Type[T]) -> T:
-        return machine_op("memref_getitem", restype, self, indices)
+    def store(self, indices: tuple[intp, ...], value: T) -> None:
+        return machine_op("memref_store", None, self, indices, value)
+
+    def load(self, indices: tuple[intp, ...], restype: _tp.Type[T]) -> T:
+        return machine_op("memref_load", restype, self, indices)
+
+    def view(self, shape: tuple[intp, ...], strides: tuple[intp, ...], offset: intp) -> memref[T]:
+        return machine_op("memref_view", memref, self, shape, strides, offset)
