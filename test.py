@@ -122,7 +122,7 @@ def test_broadcast_shapes_2():
     with pytest.raises(ValueError, match="Shapes are not broadcastable"):
         out = Array.broadcast_shapes(shape_1, shape_2, shape_3)
 
-def test_array_slice():
+def test_array_slice_getitem():
     shape = (intp(3), intp(4), intp(5))
     i32_dtype = DType(Int32)
 
@@ -155,3 +155,65 @@ def test_array_slice():
                 assert ary[0, j, 0] == slice_2[j]
                 if 1 <= j < 3:
                     assert ary[0, j, k] == slice_3[j - 1, k]
+
+
+def test_array_slice_setitem():
+    shape = (intp(3), intp(4))
+    i32_dtype = DType(Int32)
+
+    data = memref.alloc(shape, i32)
+    ary = Array(dtype=i32_dtype, data=data)
+
+    # write loop
+    c = i32(0)
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            ary[i, j] = c
+            c += i32(1)
+
+    # Declare a larger array
+    shape_2 = (intp(3), intp(3), intp(4))
+    data_2 = memref.alloc(shape_2, i32)
+    ary_2 = Array(dtype=i32_dtype, data=data_2)
+
+    # Setitem slice
+    ary_2[0] = ary
+
+    # Check contents
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            assert ary[i, j] == ary_2[0, i, j]
+
+    ary_2[1] = i32(100)
+
+    # Check contents
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            assert ary_2[1, i, j] == i32(100)
+
+
+def test_array_copy():
+    shape = (intp(3), intp(4))
+    i32_dtype = DType(Int32)
+
+    data = memref.alloc(shape, i32)
+    ary = Array(dtype=i32_dtype, data=data)
+
+    # write loop
+    c = i32(0)
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            ary[i, j] = c
+            c += i32(1)
+
+    # Declare a copy
+    ary_copy = ary.copy()
+
+    # Check contents
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            assert ary[i, j] == ary_copy[i, j]
+
+    # Modify the copy
+    ary_copy[0, 0] = i32(10)
+    assert ary[0, 0] != ary_copy[0, 0]

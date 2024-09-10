@@ -109,6 +109,9 @@ class memref[T]:
     def offset(self) -> intp:
         return machine_op("memref_offset", tuple, self)
 
+    def copy(self) -> memref[T]:
+        return machine_op("memref_copy", memref, self)
+
     def store(self, indices: tuple[intp, ...], value: T) -> None:
         return machine_op("memref_store", None, self, indices, value)
 

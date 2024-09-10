@@ -5,6 +5,7 @@ import typing as _tp
 from mcl.builtins import tuple_cast
 from mcl.machine_types import i32, intp, memref
 from mcl.vm import struct_type
+from mcl.dialects import LoopNestAPI
 
 
 @struct_type()
@@ -69,9 +70,30 @@ class Array[T]:
     def __setitem__(self, idx: _Indices, value: T):
         if not isinstance(idx, tuple):
             idx = (idx,)
-        idx = tuple_cast(intp, idx)
-        # TODO: There's no assertion that checks if idx is within bounds.
-        self.data.store(idx, value)
+
+        if len(idx) < len(self.shape):
+            idx = idx + (slice(None),) * (len(self.shape) - len(idx))
+
+        if any(isinstance(i, Array) for i in idx):
+            raise ValueError("Array indexing is not supported")
+        elif any(isinstance(i, slice) for i in idx):
+            array_view = self.__getitem__(idx)
+            if isinstance(value, Array):
+                if array_view.shape != value.shape:
+                    raise ValueError("Shapes do not match")
+                for idx_ in LoopNestAPI.from_tuple(array_view.shape):
+                    array_view[idx_] = value[idx_]
+            else:
+                if isinstance(value, Integer):
+                    value = value.value
+                for idx in LoopNestAPI.from_tuple(array_view.shape):
+                    array_view[idx] = value
+        else:
+            idx = tuple_cast(intp, idx)
+            # TODO: There's no assertion that checks if idx is within bounds.
+            if isinstance(value, Integer):
+                value = value.value
+            self.data.store(idx, value)
 
     def __getitem__(self, idx: _Indices) -> Array[T] | Generic:
         if not isinstance(idx, tuple):
@@ -80,7 +102,10 @@ class Array[T]:
         if len(idx) < len(self.shape):
             idx = idx + (slice(None),) * (len(self.shape) - len(idx))
 
-        if any(isinstance(i, slice) for i in idx):
+        if any(isinstance(i, Array) for i in idx):
+            new_shape, new_strides, new_offset = self.new_arrayinfo(idx)
+            raise ValueError("Array indexing is not supported")
+        elif any(isinstance(i, slice) for i in idx):
             new_shape, new_strides, new_offset = self.new_arrayinfo(idx)
             new_memref = self.data.view(new_shape, new_strides, new_offset)
             return Array(dtype=self.dtype, data=new_memref)
@@ -174,6 +199,15 @@ class Array[T]:
                 res_offset += idx_start * self.strides[i]
                 curr_idx += 1
             elif isinstance(idx_, (int, intp)):
-                pass
+                res_offset += intp(idx_) * self.strides[i]
 
         return tuple(res_shape), tuple(res_strides), res_offset
+
+    def copy(self) -> Array[T]:
+        return Array(dtype=self.dtype, data=self.data.copy())
+
+    def print(self) -> None:
+        res = []
+        for idx in LoopNestAPI.from_tuple(self.shape):
+            res.append(self[idx].value)
+        print(res)

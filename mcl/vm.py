@@ -218,9 +218,6 @@ def _memref_view[T](opname: str, restype: _tp.Type[T], *args) -> T:
     new_strides = tuple(map(_get_machine_value, new_strides))
     offset = _get_machine_value(offset)
 
-    # TODO: Not sure about this, we'd ideally want memref objects to be immutable
-    # But that means on every broadcast a new memref object will need creation and
-    # re-map onto the same data in _memsys
     new_memref = _the_memsys.view(
         memref,
         shape=new_shape,
@@ -230,6 +227,14 @@ def _memref_view[T](opname: str, restype: _tp.Type[T], *args) -> T:
         size=reduce(operator.mul, new_shape) * memref.itemsize,
         offset=offset
     )
+    return restype(new_memref)
+
+
+@_reg_op
+def _memref_copy[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [obj] = args
+    memref: MemRef = _get_machine_value(obj)
+    new_memref = _the_memsys.copy(memref)
     return restype(new_memref)
 
 
@@ -350,6 +355,10 @@ class MemRef:
         buf.append(">")
         return " ".join(buf)
 
+    def __eq__(self, value: object) -> bool:
+        if id(self) == id(value):
+            return True        
+
     def handle(self) -> MemRef:
         if self.owner:
             return self.owner.handle()
@@ -381,6 +390,7 @@ class MemorySystem:
         for s in reversed(shape):
             strides.append(last)
             last *= s
+        strides.reverse()
         assert last == nbytes
         memref = MemRef(
             shape=shape,
@@ -436,6 +446,26 @@ class MemorySystem:
             offset=offset
         )
         self._viewmap.setdefault(memref, []).append(new_memref)
+        return new_memref
+
+    def copy(
+        self, 
+        memref: MemRef
+    ) -> MemRef:
+        
+        new_memref = MemRef(
+            shape=memref.shape,
+            strides=memref.strides,
+            datatype=memref.datatype,
+            itemsize=memref.itemsize,
+            size=memref.size,
+            owner=None,
+            offset=memref.offset
+        )
+        # Copy the buffer
+        # TODO: In case of a view, we don't need to copy the entire buffer
+        buffer = self._memmap[memref]
+        self._memmap[new_memref] = buffer.copy()
         return new_memref
 
 _the_memsys = MemorySystem()
