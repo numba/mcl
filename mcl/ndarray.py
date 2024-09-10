@@ -75,7 +75,7 @@ class Array[T]:
             idx = idx + (slice(None),) * (len(self.shape) - len(idx))
 
         if any(isinstance(i, Array) for i in idx):
-            raise ValueError("Array indexing is not supported")
+            raise ValueError("Array indexing is not supported in setitem")
         elif any(isinstance(i, slice) for i in idx):
             array_view = self.__getitem__(idx)
             if isinstance(value, Array):
@@ -102,10 +102,17 @@ class Array[T]:
         if len(idx) < len(self.shape):
             idx = idx + (slice(None),) * (len(self.shape) - len(idx))
 
-        if any(isinstance(i, Array) for i in idx):
-            new_shape, new_strides, new_offset = self.new_arrayinfo(idx)
-            raise ValueError("Array indexing is not supported")
+        if self.is_advanced(idx):
+            res_shape, subspace_shape, subspace_offset = self.fancy_shape(idx)
+            # TODO: Derive this from memref instead
+            new_memref = memref.alloc(res_shape, i32)
+            res_array = Array(dtype=self.dtype, data=new_memref)
+
+            # TODO: Set the contents of the new array
+            return res_array
         elif any(isinstance(i, slice) for i in idx):
+            if any(isinstance(i, Array) for i in idx):
+                raise ValueError("Singular array indexing is not supported")
             new_shape, new_strides, new_offset = self.new_arrayinfo(idx)
             new_memref = self.data.view(new_shape, new_strides, new_offset)
             return Array(dtype=self.dtype, data=new_memref)
@@ -134,6 +141,10 @@ class Array[T]:
         new_strides = tuple(new_strides)
 
         self.data = self.data.view(new_shape, new_strides, self.data.offset)
+
+    @classmethod
+    def is_advanced(cls, idx: _Indices) -> bool:
+        return any((isinstance(i, Array) and i.ndim > intp(0)) for i in idx)
 
     @classmethod
     def broadcast_shapes(cls, *shapes) -> tuple[intp, ...]:
@@ -202,6 +213,53 @@ class Array[T]:
                 res_offset += intp(idx_) * self.strides[i]
 
         return tuple(res_shape), tuple(res_strides), res_offset
+
+    def fancy_shape(self, idx: _Indices) -> tuple[intp, ...]:
+        res_ndim = self.ndim
+        subspace_offset = 0
+        num_subspaces = 0
+        in_subspace = False
+        num_slices = 0
+        array_shapes = []
+        slice_shapes = []
+
+        for i, idx_ in enumerate(idx):
+            if isinstance(idx_, (int, intp)):
+                res_ndim -= intp(1)
+                in_subspace = False
+                if subspace_offset <= 0:
+                    subspace_offset -= 1
+            elif isinstance(idx_, Array):
+                if not in_subspace:
+                    in_subspace = True
+                    num_subspaces += 1
+                if subspace_offset <= 0:
+                    subspace_offset += i
+                res_ndim -= intp(1)
+                array_shapes.append(idx_.shape)
+            elif isinstance(idx_, slice):
+                num_slices += 1
+                in_subspace = False
+                if idx_.start is None:
+                    idx_start = intp(0)
+                else:
+                    idx_start = intp(idx_.start)
+                if idx_.stop is None:
+                    idx_stop = self.shape[i]
+                else:
+                    idx_stop = intp(idx_.stop)
+                slice_shapes.append(idx_stop - idx_start)
+            else:
+                raise ValueError("Invalid index")
+
+        if num_subspaces > 1:
+            subspace_offset = 0
+
+        subspace_shape = self.broadcast_shapes(*array_shapes)
+
+        res_shape = slice_shapes[:subspace_offset] + list(subspace_shape) + slice_shapes[subspace_offset:]
+
+        return tuple(res_shape), tuple(subspace_shape), subspace_offset
 
     def copy(self) -> Array[T]:
         return Array(dtype=self.dtype, data=self.data.copy())

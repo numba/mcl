@@ -178,17 +178,12 @@ def test_array_slice_setitem():
 
     # Setitem slice
     ary_2[0] = ary
-
-    # Check contents
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            assert ary[i, j] == ary_2[0, i, j]
-
     ary_2[1] = i32(100)
 
     # Check contents
     for i in range(shape[0]):
         for j in range(shape[1]):
+            assert ary[i, j] == ary_2[0, i, j]
             assert ary_2[1, i, j] == i32(100)
 
 
@@ -217,3 +212,50 @@ def test_array_copy():
     # Modify the copy
     ary_copy[0, 0] = i32(10)
     assert ary[0, 0] != ary_copy[0, 0]
+
+
+def test_array_fancy_getitem():
+    shape = (intp(4), intp(5), intp(6))
+    i32_dtype = DType(Int32)
+
+    data = memref.alloc(shape, i32)
+    ary = Array(dtype=i32_dtype, data=data)
+
+    # write loop
+    c = i32(0)
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            for k in range(shape[2]):
+                ary[i, j, k] = c
+                c += i32(1)
+
+    # Index array
+    idx_shape = (intp(2), intp(3))
+    idx_data = memref.alloc(idx_shape, i32)
+    idx_ary = Array(dtype=i32_dtype, data=idx_data)
+
+    idx_ary[0, 0] = i32(0)
+    idx_ary[0, 1] = i32(1)
+    idx_ary[0, 2] = i32(2)
+    idx_ary[1, 0] = i32(2)
+    idx_ary[1, 1] = i32(1)
+    idx_ary[1, 2] = i32(0)
+
+    # Fancy getitem
+    fancy_slice = ary[idx_ary]
+
+    # Fancy getitem with slice
+    fancy_slice_2 = ary[slice(1, 3), idx_ary]
+
+    # Fancy getitem with int
+    fancy_slice_3 = ary[0, idx_ary]
+
+    # Check shapes
+    assert fancy_slice.shape == (intp(2), intp(3), intp(5), intp(6))
+    assert fancy_slice_2.shape == (intp(2), intp(2), intp(3), intp(6))
+    assert fancy_slice_3.shape == (intp(2), intp(3), intp(6))
+
+    # Check contents
+    pass
+
+test_array_fancy_getitem()
