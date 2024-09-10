@@ -104,11 +104,13 @@ class Array[T]:
 
         if self.is_advanced(idx):
             res_shape, subspace_shape, subspace_offset = self.fancy_shape(idx)
-            # TODO: Derive this from memref instead
             new_memref = memref.alloc(res_shape, i32)
             res_array = Array(dtype=self.dtype, data=new_memref)
 
-            # TODO: Set the contents of the new array
+            for _idx in LoopNestAPI.from_tuple(subspace_shape):
+                res_idx = tuple([slice(None)] * subspace_offset + list(_idx))
+                array_idx = tuple([i if isinstance(i, (int, slice)) else intp(i[_idx].value) for i in idx])
+                res_array[*res_idx] = self[*array_idx]
             return res_array
         elif any(isinstance(i, slice) for i in idx):
             if any(isinstance(i, Array) for i in idx):

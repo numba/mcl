@@ -257,5 +257,3 @@ def test_array_fancy_getitem():
 
     # Check contents
     pass
-
-test_array_fancy_getitem()
