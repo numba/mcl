@@ -130,13 +130,28 @@ def _int_add[T](opname: str, restype: _tp.Type[T], *args) -> T:
 
 
 @_reg_op
+def _int_sub[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    return _binop(operator.sub, restype, *args)
+
+
+@_reg_op
 def _int_mul[T](opname: str, restype: _tp.Type[T], *args) -> T:
     return _binop(operator.mul, restype, *args)
 
 
 @_reg_op
+def _int_floordiv[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    return _binop(operator.floordiv, restype, *args)
+
+
+@_reg_op
 def _int_eq[T](opname: str, restype: _tp.Type[T], *args) -> T:
     return _cmpop(operator.eq, restype, *args)
+
+
+@_reg_op
+def _int_lt[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    return _cmpop(operator.lt, restype, *args)
 
 
 @_reg_op
@@ -168,7 +183,16 @@ def _memref_strides[T](opname: str, restype: _tp.Type[T], *args) -> T:
 
 
 @_reg_op
-def _memref_setitem[T](opname: str, restype: _tp.Type[T], *args) -> T:
+def _memref_offset[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [obj] = args
+    assert restype is tuple
+    memref: MemRef = _get_machine_value(obj)
+    offset = _mt.intp(memref.offset)
+    return offset
+
+
+@_reg_op
+def _memref_store[T](opname: str, restype: _tp.Type[T], *args) -> T:
     [obj, indices, val] = args
     assert type(indices) is tuple
     memref: MemRef = _get_machine_value(obj)
@@ -177,12 +201,41 @@ def _memref_setitem[T](opname: str, restype: _tp.Type[T], *args) -> T:
 
 
 @_reg_op
-def _memref_getitem[T](opname: str, restype: _tp.Type[T], *args) -> T:
+def _memref_load[T](opname: str, restype: _tp.Type[T], *args) -> T:
     [obj, indices] = args
     assert type(indices) is tuple
     memref: MemRef = _get_machine_value(obj)
     indices = tuple(map(_get_machine_value, indices))
     return restype(_the_memsys.read(memref, indices))
+
+
+@_reg_op
+def _memref_view[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [obj, new_shape, new_strides, offset] = args
+    assert type(new_shape) is tuple
+    memref: MemRef = _get_machine_value(obj)
+    new_shape = tuple(map(_get_machine_value, new_shape))
+    new_strides = tuple(map(_get_machine_value, new_strides))
+    offset = _get_machine_value(offset)
+
+    new_memref = _the_memsys.view(
+        memref,
+        shape=new_shape,
+        strides=new_strides,
+        datatype=memref.datatype,
+        itemsize=memref.itemsize,
+        size=reduce(operator.mul, new_shape) * memref.itemsize,
+        offset=offset
+    )
+    return restype(new_memref)
+
+
+@_reg_op
+def _memref_copy[T](opname: str, restype: _tp.Type[T], *args) -> T:
+    [obj] = args
+    memref: MemRef = _get_machine_value(obj)
+    new_memref = _the_memsys.copy(memref)
+    return restype(new_memref)
 
 
 @_reg_op
@@ -302,8 +355,14 @@ class MemRef:
         buf.append(">")
         return " ".join(buf)
 
+    def __eq__(self, value: object) -> bool:
+        if id(self) == id(value):
+            return True        
+
     def handle(self) -> MemRef:
-        return self.owner or self
+        if self.owner:
+            return self.owner.handle()
+        return self
 
 
 class MemorySystem:
@@ -314,10 +373,12 @@ class MemorySystem:
     """
 
     _memmap: dict[MemRef, bytearray]
+    _viewmap: dict[MemRef, list[MemRef]]
     _last_addr: int
 
     def __init__(self):
         self._memmap = {}
+        self._viewmap = {}
 
     def alloc(self, shape: tuple[int, ...], datatype: _tp.Type) -> MemRef:
         itemsize = _sizeof(datatype)
@@ -329,6 +390,7 @@ class MemorySystem:
         for s in reversed(shape):
             strides.append(last)
             last *= s
+        strides.reverse()
         assert last == nbytes
         memref = MemRef(
             shape=shape,
@@ -364,5 +426,46 @@ class MemorySystem:
         raw_bytes = buffer[offset : offset + n]
         return _from_bytes(memref.datatype, raw_bytes)
 
+    def view(
+        self, 
+        memref: MemRef,
+        shape,
+        strides,
+        datatype,
+        itemsize,
+        size,
+        offset
+    ) -> MemRef:
+        new_memref = MemRef(
+            shape=shape,
+            strides=strides,
+            datatype=datatype,
+            itemsize=itemsize,
+            size=size,
+            owner=memref.owner or memref,
+            offset=offset
+        )
+        self._viewmap.setdefault(memref, []).append(new_memref)
+        return new_memref
+
+    def copy(
+        self, 
+        memref: MemRef
+    ) -> MemRef:
+        
+        new_memref = MemRef(
+            shape=memref.shape,
+            strides=memref.strides,
+            datatype=memref.datatype,
+            itemsize=memref.itemsize,
+            size=memref.size,
+            owner=None,
+            offset=memref.offset
+        )
+        # Copy the buffer
+        # TODO: In case of a view, we don't need to copy the entire buffer
+        buffer = self._memmap[memref]
+        self._memmap[new_memref] = buffer.copy()
+        return new_memref
 
 _the_memsys = MemorySystem()
