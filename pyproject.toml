@@ -1,0 +1,30 @@
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcl"
+version = "0.0.1"
+authors = [
+    {name = "Numba Developers", email="none@none.none"},
+]
+description = "An experimental Minimal Core (Numba) Language"
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["mcl"]
+license = {text = "BSD-2-Clause"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = []
+
+[tool.setuptools.packages]
+find = {}
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "numpy",
+    "pre-commit"
+]
