@@ -5,8 +5,6 @@ from mcl.machine_types import i32, i64, intp, memref
 from mcl.vm import Type
 from mcl.ndarray import Array, DType, Int32
 
-
-
 def test_i32():
     a = i32(321)
 
